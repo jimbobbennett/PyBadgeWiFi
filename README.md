@@ -2,6 +2,8 @@
 
 This repo contains instructions on how to get an [Adafruit PyBadge](https://www.adafruit.com/product/4200) connecting to Wi-Fi using an [Adafruit Airlift FeatherWing](https://www.adafruit.com/product/4264).
 
+> The code here can also be used to connect a PyPortal to Wi-Fi using the built in ESP32 chip
+
 ## Hardware
 
 * An [Adafruit PyBadge](https://www.adafruit.com/product/4200) - this is a Circuit Python device that has a display and controllers similar to a game console. Out of the box it doesn't have Wi-Fi connectivity, but it does have a FeatherWing socket on the back to plug in add-on boards.
@@ -65,54 +67,82 @@ Rather than encode Wi-Fi connection details in code, it is better to put them in
 
 ### Connect to the Wi-Fi
 
-To connect to the Wi-Fi, add the following code to the `code.py` file in the `CIRCUITPYTHON` folder. This file should already be there as part of the default install, but if it is not there, create it. This file is run when the PyBadge boots up.
+1. Create a new file in the root of the `CIRCUITPYTHON` folder called `connection.py`
 
-1. Add the following code to this file
+1. Add the following code to this file. You can find this file in the [Code](./Code) folder if you just want to copy it to your PyBadge
 
     ```python
     import board, busio
+    from secrets import secrets
     from digitalio import DigitalInOut
+    import adafruit_requests as requests
     import adafruit_esp32spi.adafruit_esp32spi_socket as socket
     from adafruit_esp32spi import adafruit_esp32spi
+
+    class Connection:
+        def __connect(self, spi, cs, ready, reset, log):
+            esp = adafruit_esp32spi.ESP_SPIcontrol(spi, cs, ready, reset)
+
+            requests.set_socket(socket, esp)
+
+            if log:
+                print("Connecting to AP...")
+
+            while not esp.is_connected:
+                try:
+                    esp.connect_AP(secrets['ssid'], secrets['password'])
+                except RuntimeError as e:
+                    if log:
+                        print("could not connect to AP, retrying: ",e)
+                    continue
+
+            if log:
+                print("Connected to", str(esp.ssid, 'utf-8'), "\tRSSI:", esp.rssi)
+                print("My IP address is", esp.pretty_ip(esp.ip_address))
+
+        # Connect a PyPortal
+        def connect_pyportal(self, spi, log = False):
+            esp32_cs = DigitalInOut(board.ESP_CS)
+            esp32_ready = DigitalInOut(board.ESP_BUSY)
+            esp32_reset = DigitalInOut(board.ESP_RESET)
+
+            self.__connect(spi, esp32_cs, esp32_ready, esp32_reset, log)
+
+        # Connect a PyBadge
+        def connect_pybadge(self, spi, log = False):
+            esp32_cs = DigitalInOut(board.D13)
+            esp32_ready = DigitalInOut(board.D11)
+            esp32_reset = DigitalInOut(board.D12)
+
+            self.__connect(spi, esp32_cs, esp32_ready, esp32_reset, log)
+    ```
+
+1. Add the following code to the `code.py` file in the `CIRCUITPYTHON` folder. This file should already be there as part of the default install, but if it is not there, create it. This file is run when the PyBadge boots up.
+
+    ```python
+    import board
+    import busio
     import adafruit_requests as requests
-    from secrets import secrets
+    from connection import Connection
 
-    # Set up the ESP32 Pins
-    esp32_cs = DigitalInOut(board.D13)
-    esp32_ready = DigitalInOut(board.D11)
-    esp32_reset = DigitalInOut(board.D12)
-
-    # Set up the SPI
     spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
 
-    # Connect the ESP32 to the SPI
-    esp = adafruit_esp32spi.ESP_SPIcontrol(spi, esp32_cs, esp32_ready, esp32_reset)
+    conn = Connection()
+    conn.connect_pybadge(spi, True)
 
-    # Set the socket for web requests
-    requests.set_socket(socket, esp)
-
-    # Try to connect
-    print("Connecting to AP...")
-    while not esp.is_connected:
-        try:
-            esp.connect_AP(secrets['ssid'], secrets['password'])
-        except RuntimeError as e:
-            print("could not connect to AP, retrying: ",e)
-            continue
-
-    # Print the RSSI and IP Address
-    print("Connected to", str(esp.ssid, 'utf-8'), "\tRSSI:", esp.rssi)
-    print("My IP address is", esp.pretty_ip(esp.ip_address))
-
-    # Test a web rquest
     TEXT_URL = "http://wifitest.adafruit.com/testwifi/index.html"
+
     print("Fetching text from", TEXT_URL)
     r = requests.get(TEXT_URL)
     print('-'*40)
     print(r.text)
     print('-'*40)
     r.close()
+
+    print("Done!")
     ```
+
+    This code uses the `Connection` module to connect to Wi-Fi, then downloads some test to show that it is working.
 
 1. Save the file. The PyBadge will reboot and connect to the Wi-Fi. You will see the connection on the PyBadge screen and in your terminal if you are connected [to the serial output](https://learn.adafruit.com/welcome-to-circuitpython/kattni-connecting-to-the-serial-console).
 
